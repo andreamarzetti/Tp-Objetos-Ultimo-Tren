@@ -1,0 +1,278 @@
+import wollok.game.*
+import ultimoTren.*
+
+describe "Nivel y fisica" {
+  method initialize() {
+    nivel.construir()
+    partida.comenzar()
+  }
+
+  test "el nivel se construye a partir del mapa" {
+    assert.that(nivel.hayBloqueEn(game.at(0, 0)))      // piso
+    assert.that(nivel.hayBloqueEn(game.at(5, 4)))      // viga del medio
+    assert.notThat(nivel.hayBloqueEn(game.at(6, 3)))   // espacio vacío
+  }
+
+  test "la sobreviviente arranca apoyada en el piso" {
+    assert.that(nivel.estaApoyado(sobreviviente))
+  }
+
+  test "al saltar sube 2 casilleros" {
+    partida.saltar()
+    2.times({ i => partida.tick() })
+    assert.equals(game.at(6, 3), sobreviviente.position())
+  }
+
+  test "despues de saltar cae por la gravedad" {
+    partida.saltar()
+    2.times({ i => partida.tick() })
+    partida.tick()
+    assert.equals(game.at(6, 2), sobreviviente.position())
+  }
+
+  test "no puede saltar en el aire" {
+    sobreviviente.position(game.at(6, 3))
+    partida.saltar()
+    assert.equals(0, sobreviviente.impulso())
+  }
+
+  test "si se golpea la cabeza contra una viga deja de subir" {
+    sobreviviente.position(game.at(1, 1))      // justo debajo de una viga lateral
+    partida.saltar()
+    partida.tick()
+    assert.equals(game.at(1, 1), sobreviviente.position())
+    assert.equals(0, sobreviviente.impulso())
+  }
+
+  test "puede pararse arriba de una viga" {
+    sobreviviente.position(game.at(1, 3))
+    partida.tick()
+    assert.equals(game.at(1, 3), sobreviviente.position())
+  }
+
+  test "desde el piso se puede subir a una viga lateral" {
+    sobreviviente.position(game.at(4, 1))
+    partida.saltar()
+    2.times({ i => partida.tick() })
+    partida.moverSobreviviente(izquierda)
+    partida.tick()
+    assert.equals(game.at(3, 3), sobreviviente.position())
+  }
+
+  test "desde una viga lateral se puede subir a la del medio" {
+    sobreviviente.position(game.at(3, 3))
+    partida.saltar()
+    2.times({ i => partida.tick() })
+    partida.moverSobreviviente(derecha)
+    partida.tick()
+    assert.equals(game.at(4, 5), sobreviviente.position())
+  }
+
+  test "no puede atravesar bloques ni salirse de la pantalla" {
+    sobreviviente.position(game.at(4, 2))
+    sobreviviente.mover(izquierda)
+    assert.equals(game.at(4, 2), sobreviviente.position())
+    sobreviviente.position(game.at(0, 1))
+    sobreviviente.mover(izquierda)
+    assert.equals(game.at(0, 1), sobreviviente.position())
+  }
+}
+
+describe "Sobreviviente y suministros" {
+  method initialize() {
+    nivel.construir()
+    partida.comenzar()
+  }
+
+  test "arranca con 10 de vida y con la pistola" {
+    assert.equals(10, sobreviviente.vida())
+    assert.equals(pistola, sobreviviente.arma())
+  }
+
+  test "la vida nunca baja de cero ni supera el maximo" {
+    sobreviviente.recibirAtaque(50)
+    assert.equals(0, sobreviviente.vida())
+    sobreviviente.curarse(50)
+    assert.equals(10, sobreviviente.vida())
+  }
+
+  test "al agarrar un botiquin se cura 4 y el botiquin desaparece" {
+    const botiquin = new Botiquin(position = game.at(7, 1))
+    partida.agregarElemento(botiquin)
+    sobreviviente.recibirAtaque(5)
+    partida.moverSobreviviente(derecha)
+    assert.equals(9, sobreviviente.vida())
+    assert.notThat(partida.elementos().contains(botiquin))
+  }
+
+  test "al agarrar una caja de escopeta se equipa la escopeta con 5 balas" {
+    partida.agregarElemento(new CajaDeEscopeta(position = game.at(7, 1)))
+    partida.moverSobreviviente(derecha)
+    assert.equals(escopeta, sobreviviente.arma())
+    assert.equals(5, escopeta.municion())
+  }
+}
+
+describe "Armas" {
+  method initialize() {
+    nivel.construir()
+    partida.comenzar()
+  }
+
+  test "la pistola dispara balas de danio 1" {
+    partida.disparar()
+    assert.equals(1, partida.balas().size())
+    assert.equals(1, partida.balas().first().danio())
+  }
+
+  test "la escopeta dispara balas de danio 3 y gasta municion" {
+    escopeta.recargar(2)
+    sobreviviente.equipar(escopeta)
+    partida.disparar()
+    assert.equals(3, partida.balas().first().danio())
+    assert.equals(1, escopeta.municion())
+  }
+
+  test "la escopeta sin municion vuelve a la pistola" {
+    escopeta.recargar(1)
+    sobreviviente.equipar(escopeta)
+    partida.disparar()
+    assert.equals(pistola, sobreviviente.arma())
+  }
+
+  test "una bala que impacta le saca vida al zombie" {
+    const zombie = new Zombie(position = game.at(8, 1), tipo = caminante)
+    partida.agregarZombie(zombie)
+    partida.disparar()
+    2.times({ i => partida.tick() })
+    assert.equals(1, zombie.vida())
+    assert.that(partida.balas().isEmpty())
+  }
+
+  test "al matar un zombie se elimina y suma sus puntos" {
+    partida.agregarZombie(new Zombie(position = game.at(7, 1), tipo = corredor))
+    partida.disparar()
+    partida.tick()
+    assert.that(partida.zombies().isEmpty())
+    assert.equals(15, partida.puntos())
+    assert.equals(1, partida.eliminados())
+  }
+
+  test "una bala que choca contra una viga desaparece" {
+    sobreviviente.position(game.at(4, 2))
+    sobreviviente.mover(izquierda)
+    partida.disparar()
+    partida.moverBalas()
+    assert.that(partida.balas().isEmpty())
+  }
+}
+
+describe "Zombies" {
+  method initialize() {
+    nivel.construir()
+    partida.comenzar()
+  }
+
+  test "el corredor avanza cada 4 ticks hacia la sobreviviente" {
+    const zombie = new Zombie(position = game.at(10, 1), tipo = corredor)
+    3.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(game.at(10, 1), zombie.position())
+    zombie.actuar(sobreviviente)
+    assert.equals(game.at(9, 1), zombie.position())
+  }
+
+  test "el caminante avanza cada 6 ticks" {
+    const zombie = new Zombie(position = game.at(10, 1), tipo = caminante)
+    5.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(game.at(10, 1), zombie.position())
+    zombie.actuar(sobreviviente)
+    assert.equals(game.at(9, 1), zombie.position())
+  }
+
+  test "un zombie al lado de la sobreviviente la ataca en vez de moverse" {
+    const zombie = new Zombie(position = game.at(7, 1), tipo = corredor)
+    4.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(9, sobreviviente.vida())
+    assert.equals(game.at(7, 1), zombie.position())
+  }
+
+  test "el gordo pega mas fuerte" {
+    const zombie = new Zombie(position = game.at(7, 1), tipo = gordo)
+    10.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(8, sobreviviente.vida())
+  }
+
+  test "el corredor salta si la sobreviviente esta mas arriba" {
+    sobreviviente.position(game.at(11, 3))
+    const zombie = new Zombie(position = game.at(6, 1), tipo = corredor)
+    4.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(2, zombie.impulso())
+  }
+
+  test "el caminante no salta" {
+    sobreviviente.position(game.at(11, 3))
+    const zombie = new Zombie(position = game.at(6, 1), tipo = caminante)
+    6.times({ i => zombie.actuar(sobreviviente) })
+    assert.equals(0, zombie.impulso())
+  }
+
+  test "el gordo al morir deja una caja de escopeta" {
+    const zombie = new Zombie(position = game.at(9, 1), tipo = gordo)
+    partida.agregarZombie(zombie)
+    zombie.recibirDanio(6)
+    partida.retirarMuertos()
+    assert.equals(1, partida.elementos().size())
+  }
+}
+
+describe "Portada" {
+  method initialize() { nivel.construir() }
+
+  test "la partida arranca en la portada y no se puede jugar" {
+    assert.equals(enPortada, partida.estado())
+    partida.moverSobreviviente(derecha)
+    assert.equals(game.at(6, 1), sobreviviente.position())
+  }
+
+  test "al comenzar se puede jugar y la portada sale de la pantalla" {
+    partida.comenzar()
+    assert.equals(enCurso, partida.estado())
+    assert.equals(game.at(-20, 0), portada.position())
+  }
+
+  test "mientras esta la portada no corre el tiempo ni aparecen zombies" {
+    partida.pasarSegundo()
+    partida.aparecerZombie()
+    assert.equals(90, partida.segundosParaElTren())
+    assert.that(partida.zombies().isEmpty())
+  }
+}
+
+describe "Partida" {
+  method initialize() {
+    nivel.construir()
+    partida.comenzar()
+  }
+
+  test "si la sobreviviente se queda sin vida se pierde" {
+    sobreviviente.recibirAtaque(10)
+    partida.tick()
+    assert.equals(perdida, partida.estado())
+  }
+
+  test "si llega el tren se gana" {
+    90.times({ i => partida.pasarSegundo() })
+    assert.equals(ganada, partida.estado())
+    assert.that(marcador.text().contains("TREN"))
+  }
+
+  test "con la partida terminada no se puede mover, saltar ni disparar" {
+    partida.ganar()
+    partida.moverSobreviviente(izquierda)
+    partida.saltar()
+    partida.disparar()
+    assert.equals(game.at(6, 1), sobreviviente.position())
+    assert.equals(0, sobreviviente.impulso())
+    assert.that(partida.balas().isEmpty())
+  }
+}

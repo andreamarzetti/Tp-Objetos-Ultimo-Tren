@@ -1,0 +1,27 @@
+import wollok.game.*
+import ultimoTren.*
+
+program juego {
+  game.title("Último Tren")
+  game.width(nivel.ancho())
+  game.height(nivel.alto())
+  game.cellSize(64)
+  game.boardGround("fondo.png")
+
+  partida.iniciar()
+
+  // ---- Teclas ----
+  keyboard.enter().onPressDo({ partida.comenzar() })
+  keyboard.left().onPressDo({ partida.moverSobreviviente(izquierda) })
+  keyboard.right().onPressDo({ partida.moverSobreviviente(derecha) })
+  keyboard.up().onPressDo({ partida.saltar() })
+  keyboard.space().onPressDo({ partida.disparar() })
+
+  // ---- Eventos temporales ----
+  game.onTick(150, "reloj", { partida.tick() })                         // gravedad, balas y zombies
+  game.onTick(1000, "cuentaRegresiva", { partida.pasarSegundo() })      // falta para el tren
+  game.onTick(4000, "oleada", { partida.aparecerZombie() })             // entra un zombie
+  game.onTick(10000, "suministros", { partida.aparecerSuministro() })   // botiquín o escopeta
+
+  game.start()
+}
